@@ -45,6 +45,8 @@ function test(path, options) {
             testedProjects++;
             shouldThrow++;
           }
+          var errors = require('../../lib/error');
+          var result = errors.message(error);
 
           return error.message;
         }).then(function (res) {
