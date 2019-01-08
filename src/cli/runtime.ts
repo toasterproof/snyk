@@ -1,9 +1,9 @@
-import {gte} from 'semver';
+import { satisfies } from 'semver';
 
-const MIN_RUNTIME = '4.0.0';
+const MIN_RUNTIME = '6';
 
-export const supportedRange = '>= 4';
+export const supportedRange = `>= ${MIN_RUNTIME}`;
 
 export function isSupported(runtimeVersion) {
-  return gte(runtimeVersion, MIN_RUNTIME);
+  return satisfies(runtimeVersion, supportedRange);
 }
