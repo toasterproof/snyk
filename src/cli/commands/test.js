@@ -13,6 +13,20 @@ var WIZARD_SUPPORTED_PMS =
   require('../../lib/snyk-test/common').WIZARD_SUPPORTED_PMS;
 var docker = require('../../lib/docker-promotion');
 var SEPARATOR = '\n-------------------------------------------------------\n';
+var semverByPkgManager = {
+  npm: semver,
+  rubygems: require('@snyk/ruby-semver'),
+  maven: require('@snyk/maven-semver'),
+  pip: require('@snyk/maven-semver'),
+  gradle: require('@snyk/maven-semver'),
+  sbt: require('@snyk/maven-semver'),
+  // golang: require('semver'),
+  // nuget: require('@snyk/maven-semver'),
+  // composer: require('@snyk/ruby-semver'),
+  // deb: require('@snyk/deb-semver'),
+  // rpm: require('@snyk/rpm-semver'),
+  // apk: require('@snyk/deb-semver'),
+};
 
 // arguments array is 0 or more `path` strings followed by
 // an optional `option` object
@@ -59,11 +73,11 @@ function test() {
             .catch(function (error) {
               // Possible error cases:
               // - the test found some vulns. `error.message` is a
-              // JSON-stringified
+              //   JSON-stringified
               //   test result.
               // - the flow failed, `error` is a real Error object.
               // - the flow failed, `error` is a number or string
-              // describing the problem.
+              //   describing the problem.
               //
               // To standardise this, make sure we use the best _object_ to
               // describe the error.
@@ -110,9 +124,7 @@ function test() {
         var dataToSend = results.length === 1 ? results[0] : results;
         var json = JSON.stringify(dataToSend, '', 2);
 
-        if (results.every(function (res) {
-          return res.ok;
-        })) {
+        if (results.every(function (res) { return res.ok; })) {
           return json;
         }
 
@@ -281,25 +293,53 @@ function displayResult(res, options) {
   }
 
   var vulns = res.vulnerabilities || [];
-  var groupedVulns = groupVulnerabilities(vulns);
-  var sortedGroupedVulns = _.orderBy(
-    groupedVulns,
-    ['metadata.severityValue', 'metadata.name'],
-    ['asc', 'desc']
-  );
-  var filteredSortedGroupedVulns = sortedGroupedVulns.filter(function (vuln) {
-    return (vuln.metadata.packageManager !== 'upstream');
-  });
-  var binariesSortedGroupedVulns = sortedGroupedVulns.filter(function (vuln) {
-    return (vuln.metadata.packageManager === 'upstream');
-  });
-  var groupedVulnInfoOutput = filteredSortedGroupedVulns.map(vuln => formatIssues(vuln, options));
-  var groupedDockerBinariesVulnInfoOutput = (res.docker && res.docker.binariesVulns) ?
-    formatDockerBinariesIssues(binariesSortedGroupedVulns, res.docker.binariesVulns, options) : [];
-  var body =
-    groupedVulnInfoOutput.join('\n\n') + '\n\n\n' +
-    groupedDockerBinariesVulnInfoOutput.join('\n\n') + '\n\n' + meta + summary;
-  return prefix + body + dockerAdvice + dockerSuggestion;
+  let body;
+  if (options.perPackageFixes) {
+    const unfixable = [];
+    const fixesByDirectDep = {};
+    for (const vuln of vulns) {
+      if (vuln.isUpgradable) {
+        const dep = vuln.from[1];
+        fixesByDirectDep[dep] = fixesByDirectDep[dep] || { vulns: [], upgradeTo: '0.0.0' };
+        fixesByDirectDep[dep].vulns.push(vuln);
+        const upgradeTo = vuln.upgradePath[1].split('@').pop();
+        if (semverByPkgManager[vuln.packageManager].gt(upgradeTo, fixesByDirectDep[dep].upgradeTo)) {
+          fixesByDirectDep[dep].upgradeTo = upgradeTo;
+        }
+      } else {
+        unfixable.push(vuln);
+      }
+    }
+
+    body = _.map(fixesByDirectDep, (fixInfo, dep) =>
+      chalk.bold('Direct dependency: ') + dep + '\n' +
+      chalk.bold('Upgrade to version: ') + fixInfo.upgradeTo + '\n' +
+      chalk.bold('Fixes vulns: ') + _.map(fixInfo.vulns, 'id').join(', ')
+    ).join('\n\n') + '\n\n';
+
+
+  } else {
+    var groupedVulns = groupVulnerabilities(vulns);
+    var sortedGroupedVulns = _.orderBy(
+      groupedVulns,
+      ['metadata.severityValue', 'metadata.name'],
+      ['asc', 'desc']
+    );
+    var filteredSortedGroupedVulns = sortedGroupedVulns.filter(function (vuln) {
+      return (vuln.metadata.packageManager !== 'upstream');
+    });
+    var binariesSortedGroupedVulns = sortedGroupedVulns.filter(function (vuln) {
+      return (vuln.metadata.packageManager === 'upstream');
+    });
+    var groupedVulnInfoOutput = filteredSortedGroupedVulns.map(vuln => formatIssues(vuln, options));
+    var groupedDockerBinariesVulnInfoOutput = (res.docker && res.docker.binariesVulns) ?
+      formatDockerBinariesIssues(binariesSortedGroupedVulns, res.docker.binariesVulns, options) : [];
+    body =
+      groupedVulnInfoOutput.join('\n\n') + '\n\n\n' +
+      groupedDockerBinariesVulnInfoOutput.join('\n\n') + '\n\n';
+  }
+
+  return prefix + body + meta + summary + dockerAdvice + dockerSuggestion;
 };
 
 function formatDockerBinariesIssues(dockerBinariesSortedGroupedVulns, binariesVulns, options) {
