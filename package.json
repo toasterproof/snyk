@@ -63,7 +63,7 @@
     "needle": "^2.2.4",
     "opn": "^5.2.0",
     "os-name": "^2.0.1",
-    "proxy-agent": "2.3.1",
+    "proxy-agent": "4.0.0",
     "proxy-from-env": "^1.0.0",
     "recursive-readdir": "^2.2.2",
     "semver": "^5.5.0",
